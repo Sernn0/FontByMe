@@ -1,7 +1,5 @@
-# Gendify
-Gen(re) + (moo)d + (Spot)ify
-Genre / Mood classifier by Spotify API metadata
-
+# unnamed
+(explain)
 ---
 HNU 2025 AI-programming course fall
 
