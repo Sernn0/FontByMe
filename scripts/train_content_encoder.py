@@ -123,10 +123,15 @@ def save_reconstructions(
 ) -> None:
     """Save a grid of original (top row) and reconstructed (bottom row) images."""
     for batch in dataset.take(1):
-        originals = batch[:max_images]
+        # Dataset yields (inputs, targets); we only need inputs for reconstruction.
+        if isinstance(batch, (list, tuple)) and len(batch) == 2:
+            originals = batch[0][:max_images]
+        else:
+            originals = batch[:max_images]
         recon = model.predict(originals, verbose=0)
-        count = originals.shape[0]
-        images = np.concatenate([originals, recon], axis=0)
+        originals_np = originals.numpy() if tf.is_tensor(originals) else np.array(originals)
+        images = np.concatenate([originals_np, recon], axis=0)
+        count = originals_np.shape[0]
         h, w = images.shape[1], images.shape[2]
         grid = Image.new("L", (count * w, 2 * h))
         for idx, img_arr in enumerate(images):
