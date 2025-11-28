@@ -18,7 +18,10 @@ DEFAULT_ROOT = Path("data/handwriting_raw/resizing")
 
 
 def resolve_path(path_str: str, root: Optional[Path]) -> str:
-    """Resolve image path against optional root, handling leading slash paths."""
+    """
+    Resolve image path against optional root, handling leading slash paths
+    and writer_id subfolders (root/<writer_id>/<filename>).
+    """
     if not root:
         return str(Path(path_str))
 
@@ -30,7 +33,16 @@ def resolve_path(path_str: str, root: Optional[Path]) -> str:
     # If normalized path already contains the root prefix, drop it.
     if norm_parts[: len(root_parts)] == root_parts:
         remaining = Path(*norm_parts[len(root_parts) :])
+        # If remaining is already in writer_id/filename form, just join.
+        if len(remaining.parts) >= 2:
+            return str(root / remaining)
         return str(root / remaining)
+
+    # If writer_id and filename exist, interpret as writer_id/<filename>
+    if len(norm_parts) >= 2:
+        writer_id = norm_parts[0]
+        filename = Path(*norm_parts[1:])
+        return str(root / writer_id / filename)
 
     # Otherwise, treat as relative to root.
     return str(root / normalized)
