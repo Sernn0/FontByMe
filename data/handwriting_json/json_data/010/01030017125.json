@@ -1,0 +1,32 @@
+{
+  "info" : {
+    "name" : "Korean OCR Data Set",
+    "description" : "Korean OCR Data Set (letter handwrite)",
+    "date_created" : "2020-12-31 14:38:18",
+    "text" : "핌"
+  },
+  "image" : {
+    "file_name" : "01030017125.jpg",
+    "width" : 111,
+    "height" : 110,
+    "dpi" : 300,
+    "bit" : 24
+  },
+  "text" : {
+    "type" : "letter",
+    "output" : "handwrite",
+    "letter" : {
+      "value" : "핌"
+    }
+  },
+  "license" : {
+    "output" : "handwrite",
+    "font" : "",
+    "font_no" : "",
+    "font_license" : "",
+    "font_url" : "",
+    "writer_no" : "010",
+    "writer_gender" : "female",
+    "writer_age" : "30"
+  }
+}

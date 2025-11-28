@@ -1,0 +1,32 @@
+{
+  "info" : {
+    "name" : "Korean OCR Data Set",
+    "description" : "Korean OCR Data Set (letter handwrite)",
+    "date_created" : "2021-02-02 12:35:30",
+    "text" : "뤄"
+  },
+  "image" : {
+    "file_name" : "05830006087.jpg",
+    "width" : 110,
+    "height" : 109,
+    "dpi" : 300,
+    "bit" : 24
+  },
+  "text" : {
+    "type" : "letter",
+    "output" : "handwrite",
+    "letter" : {
+      "value" : "뤄"
+    }
+  },
+  "license" : {
+    "output" : "handwrite",
+    "font" : "",
+    "font_no" : "",
+    "font_license" : "",
+    "font_url" : "",
+    "writer_no" : "058",
+    "writer_gender" : "female",
+    "writer_age" : "40"
+  }
+}

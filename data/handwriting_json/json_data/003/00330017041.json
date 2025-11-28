@@ -1,0 +1,32 @@
+{
+  "info" : {
+    "name" : "Korean OCR Data Set",
+    "description" : "Korean OCR Data Set (letter handwrite)",
+    "date_created" : "2020-12-23 13:37:38",
+    "text" : "팹"
+  },
+  "image" : {
+    "file_name" : "00330017041.jpg",
+    "width" : 113,
+    "height" : 112,
+    "dpi" : 300,
+    "bit" : 24
+  },
+  "text" : {
+    "type" : "letter",
+    "output" : "handwrite",
+    "letter" : {
+      "value" : "팹"
+    }
+  },
+  "license" : {
+    "output" : "handwrite",
+    "font" : "",
+    "font_no" : "",
+    "font_license" : "",
+    "font_url" : "",
+    "writer_no" : "003",
+    "writer_gender" : "female",
+    "writer_age" : "20"
+  }
+}

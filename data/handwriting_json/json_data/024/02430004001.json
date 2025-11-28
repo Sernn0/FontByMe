@@ -1,0 +1,32 @@
+{
+  "info" : {
+    "name" : "Korean OCR Data Set",
+    "description" : "Korean OCR Data Set (letter handwrite)",
+    "date_created" : "2021-01-19 12:23:08",
+    "text" : "눕"
+  },
+  "image" : {
+    "file_name" : "02430004001.jpg",
+    "width" : 109,
+    "height" : 112,
+    "dpi" : 300,
+    "bit" : 24
+  },
+  "text" : {
+    "type" : "letter",
+    "output" : "handwrite",
+    "letter" : {
+      "value" : "눕"
+    }
+  },
+  "license" : {
+    "output" : "handwrite",
+    "font" : "",
+    "font_no" : "",
+    "font_license" : "",
+    "font_url" : "",
+    "writer_no" : "024",
+    "writer_gender" : "male",
+    "writer_age" : "20"
+  }
+}
