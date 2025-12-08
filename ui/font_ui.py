@@ -519,8 +519,8 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
             code_hex = f"{ord(ch):04X}"
             gray = page.convert("L")
             w, h = gray.size
-            # 중앙 2048 정사각형을 잘라내고 256x256으로 축소
-            crop_size = min(2048, w, h)
+            # 중앙 512 정사각형을 잘라내고 256x256으로 축소
+            crop_size = min(512, w, h)
             cx, cy = w // 2, h // 2
             half = crop_size // 2
             left = cx - half

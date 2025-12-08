@@ -68,10 +68,11 @@ def build_style_dataset(index_json_path: Path, batch_size: int = 32, shuffle: bo
         ds = ds.shuffle(buffer_size=len(entries))
     def _map_fn(image_path, text_id, writer_id):
         img_bytes = tf.io.read_file(image_path)
-        img = tf.io.decode_image(img_bytes, channels=1, expand_animations=False)
+        img = tf.io.decode_image(img_bytes, channels=1, expand_animations=False, dtype=tf.uint8)
+        # 0~1 스케일로 변환 후 리사이즈
+        img = tf.image.convert_image_dtype(img, dtype=tf.float32)  # scales to [0,1]
         img = tf.image.resize(img, TARGET_SIZE, method=tf.image.ResizeMethod.LANCZOS3)
-        # 확실한 0~1 정규화
-        img = tf.cast(img, tf.float32) / 255.0
+        img = tf.clip_by_value(img, 0.0, 1.0)
         return img, tf.cast(text_id, tf.int32), tf.cast(writer_id, tf.int32)
 
     ds = ds.map(_map_fn, num_parallel_calls=tf.data.AUTOTUNE)
