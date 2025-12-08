@@ -37,13 +37,9 @@ CHARSET_SIMPLE = ROOT / "charset_50.txt"
 CHARSET_DETAILED = ROOT / "charset_220.txt"
 OUTPUT_DIR = ROOT / "outputs"
 
-# Drag & Drop 지원 여부
-try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-
-    HAS_DND = True
-except Exception:
-    HAS_DND = False
+# Drag & Drop (필수 의존성)
+from tkinterdnd2 import DND_FILES, TkinterDnD
+HAS_DND = True
 # 색상 팔레트 (디자인 시안과 유사하게 세팅)
 COLOR_BG = "#ffffff"
 COLOR_PANEL = "#e5e5e5"
@@ -87,6 +83,7 @@ def run_preflight_checks() -> None:
         ("pdf2image", "pdf2image"),
         ("fontTools", "fontTools"),
         ("fontmake", "fontmake"),
+        ("tkinterdnd2", "tkinterdnd2"),
     ]
     for name, mod in py_deps:
         try:
@@ -299,9 +296,8 @@ class UploadPage(BaseFrame):
         tk.Label(content_holder, text="+", font=("Helvetica", 40), bg=COLOR_PANEL, fg=COLOR_TEXT).pack()
         tk.Label(content_holder, text="PDF 선택", font=("Helvetica", 12), bg=COLOR_PANEL, fg=COLOR_TEXT).pack(pady=(6, 0))
         drop_area.bind("<Button-1>", lambda e: self.select_file())
-        if HAS_DND:
-            drop_area.drop_target_register(DND_FILES)
-            drop_area.dnd_bind("<<Drop>>", self._on_drop)
+        drop_area.drop_target_register(DND_FILES)
+        drop_area.dnd_bind("<<Drop>>", self._on_drop)
 
     def _on_drop(self, event):
         if not event.data:
@@ -382,7 +378,7 @@ class ResultPage(BaseFrame):
 
 
 # ----------------------- 메인 앱 ----------------------- #
-class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
+class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         self.title("Font By Me")
