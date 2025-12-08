@@ -32,6 +32,7 @@ from tkinter import PhotoImage
 
 # 프로젝트 루트 기준 기본 경로
 ROOT = Path(__file__).resolve().parents[1]
+ASSETS_DIR = ROOT / "ui" / "assets"
 CHARSET_SIMPLE = ROOT / "charset_50.txt"
 CHARSET_DETAILED = ROOT / "charset_220.txt"
 OUTPUT_DIR = ROOT / "outputs"
@@ -230,7 +231,7 @@ class MainPage(BaseFrame):
         self.controller.show_frame("UploadPage")
 
     def _load_right_image(self, widget: tk.Label):
-        img_path = ROOT / "assets" / "font_by_me_title.png"
+        img_path = ASSETS_DIR / "font_by_me_title.png"
         if not img_path.exists():
             # fallback: 작은 캔버스 렌더
             c = tk.Canvas(widget, width=320, height=240, bg=COLOR_BG, highlightthickness=0)
