@@ -211,17 +211,20 @@ class MainPage(BaseFrame):
         self._load_right_image(right)
 
     def download_form(self, mode: str):
-        charset = CHARSET_SIMPLE if mode == "simple" else CHARSET_DETAILED
+        pdf_name = "FontByMe_50.pdf" if mode == "simple" else "FontByMe_220.pdf"
+        src = ASSETS_DIR / pdf_name
+        if not src.exists():
+            messagebox.showerror("에러", f"양식 파일을 찾을 수 없습니다: {src}")
+            return
         dest = filedialog.asksaveasfilename(
-            title="양식 텍스트 저장",
-            defaultextension=".txt",
-            filetypes=[("Text", "*.txt")],
-            initialfile=charset.name,
+            title="양식 PDF 저장",
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf")],
+            initialfile=pdf_name,
         )
         if dest:
             try:
-                content = charset.read_text(encoding="utf-8")
-                Path(dest).write_text(content, encoding="utf-8")
+                Path(dest).write_bytes(src.read_bytes())
                 messagebox.showinfo("완료", f"{dest}에 저장했습니다.")
             except Exception as e:
                 messagebox.showerror("에러", f"저장 실패: {e}")
@@ -441,9 +444,13 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
     def _process_workflow(self):
         loader: LoadingPage = self.frames["LoadingPage"]
         try:
+            # charset 로드
+            chars = [c.strip() for c in self.state.charset_file.read_text(encoding="utf-8").splitlines() if c.strip()]
+            if not chars:
+                raise RuntimeError(f"charset 파일이 비어있습니다: {self.state.charset_file}")
             # 1) PDF → 페이지 이미지 변환 (TODO 실제 구현)
             loader.set_message("PDF 처리 중...")
-            images = self._pdf_to_images(self.state.pdf_path, dpi=300)
+            images = self._pdf_to_images(self.state.pdf_path, chars, dpi=300)
 
             # 2) 페이지 중앙 2048x2048 → 256x256 리사이즈 + 라벨 매칭
             loader.set_message("이미지 전처리 중...")
@@ -467,7 +474,7 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
             self.show_frame("MainPage")
 
     # 아래 함수들은 더미/예시 구현입니다. 실제 처리 로직으로 교체하세요.
-    def _pdf_to_images(self, pdf_path: Optional[Path], dpi: int = 300) -> List[Path]:
+    def _pdf_to_images(self, pdf_path: Optional[Path], chars: List[str], dpi: int = 300) -> List[Path]:
         if not pdf_path or not pdf_path.exists():
             raise FileNotFoundError("PDF 파일이 없습니다.")
         tmp_dir = OUTPUT_DIR / "tmp_images"
@@ -498,9 +505,18 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
             raise RuntimeError(f"PDF 처리 실패: {e}\n{hint}") from e
         if not pages:
             raise RuntimeError("PDF에서 페이지를 추출하지 못했습니다.")
+        if len(pages) != len(chars):
+            print(f"[WARN] 페이지 수({len(pages)})와 charset 길이({len(chars)})가 다릅니다. 짝이 맞는 범위만 저장합니다.")
 
         out_paths: List[Path] = []
-        for idx, page in enumerate(pages, start=1):
+        limit = min(len(pages), len(chars))
+        for i in range(limit):
+            idx = i + 1
+            page = pages[i]
+            ch = chars[i]
+            if not ch:
+                continue
+            code_hex = f"{ord(ch):04X}"
             gray = page.convert("L")
             w, h = gray.size
             # 중앙 2048 정사각형을 잘라내고 256x256으로 축소
@@ -513,7 +529,7 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
             lower = cy + half
             cropped = gray.crop((left, upper, right, lower))
             resized = cropped.resize((256, 256), Image.LANCZOS)
-            out_path = tmp_dir / f"page_{idx:03d}.png"
+            out_path = tmp_dir / f"{idx:04d}_{code_hex}.png"
             resized.save(out_path)
             out_paths.append(out_path)
         return out_paths

@@ -70,7 +70,8 @@ def build_style_dataset(index_json_path: Path, batch_size: int = 32, shuffle: bo
         img_bytes = tf.io.read_file(image_path)
         img = tf.io.decode_image(img_bytes, channels=1, expand_animations=False)
         img = tf.image.resize(img, TARGET_SIZE, method=tf.image.ResizeMethod.LANCZOS3)
-        img = tf.image.convert_image_dtype(img, dtype=tf.float32)
+        # 확실한 0~1 정규화
+        img = tf.cast(img, tf.float32) / 255.0
         return img, tf.cast(text_id, tf.int32), tf.cast(writer_id, tf.int32)
 
     ds = ds.map(_map_fn, num_parallel_calls=tf.data.AUTOTUNE)
