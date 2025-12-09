@@ -2,30 +2,12 @@ from __future__ import annotations
 
 """
 Decoder (generator) that maps content and style latents to a 256x256 grayscale image.
+Uses the same architecture as the proven content autoencoder decoder.
 """
 
 from typing import Tuple
 
 import tensorflow as tf
-
-
-def up_block(x: tf.Tensor, filters: int, kernel_size: int = 3, strides: int = 1) -> tf.Tensor:
-    """Upsampling block: UpSampling2D -> Conv2D -> BatchNorm -> ReLU.
-
-    Uses UpSampling2D + Conv2D instead of Conv2DTranspose to avoid checkerboard artifacts.
-    """
-    if strides > 1:
-        x = tf.keras.layers.UpSampling2D(size=(strides, strides), interpolation='bilinear')(x)
-    x = tf.keras.layers.Conv2D(
-        filters,
-        kernel_size,
-        strides=1,
-        padding="same",
-        use_bias=False,
-    )(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.ReLU()(x)
-    return x
 
 
 def build_decoder(
@@ -35,23 +17,29 @@ def build_decoder(
 ) -> tf.keras.Model:
     """
     Build a decoder that generates an image from content and style vectors.
+    Architecture mirrors the working content autoencoder decoder.
     """
     content_input = tf.keras.Input(shape=(content_dim,), name="content_vec")
     style_input = tf.keras.Input(shape=(style_dim,), name="style_vec")
 
     x = tf.keras.layers.Concatenate(name="concat_latent")([content_input, style_input])
 
-    # Project to a low-res feature map (8x8x512 for richer features).
-    x = tf.keras.layers.Dense(8 * 8 * 512, use_bias=False)(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.ReLU()(x)
-    x = tf.keras.layers.Reshape((8, 8, 512))(x)
+    # Project to 16x16x256 feature map (same as content autoencoder decoder)
+    x = tf.keras.layers.Dense(16 * 16 * 256, activation="relu")(x)
+    x = tf.keras.layers.Reshape((16, 16, 256))(x)
 
-    x = up_block(x, 512, strides=2)  # 16x16
-    x = up_block(x, 256, strides=2)  # 32x32
-    x = up_block(x, 256, strides=2)  # 64x64
-    x = up_block(x, 128, strides=2)  # 128x128
-    x = up_block(x, 64, strides=2)   # 256x256
+    # Decoder blocks: Conv2DTranspose + UpSampling2D (proven to work)
+    x = tf.keras.layers.Conv2DTranspose(256, 3, padding="same", activation="relu")(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)  # 32x32
+
+    x = tf.keras.layers.Conv2DTranspose(128, 3, padding="same", activation="relu")(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)  # 64x64
+
+    x = tf.keras.layers.Conv2DTranspose(64, 3, padding="same", activation="relu")(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)  # 128x128
+
+    x = tf.keras.layers.Conv2DTranspose(32, 3, padding="same", activation="relu")(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)  # 256x256
 
     output = tf.keras.layers.Conv2D(
         filters=img_shape[-1],
@@ -74,6 +62,7 @@ def _dummy_forward() -> None:
     content_dim = 64
     style_dim = 32
     decoder = build_decoder(content_dim=content_dim, style_dim=style_dim)
+    decoder.summary()
     content_vec = tf.random.uniform((4, content_dim))
     style_vec = tf.random.uniform((4, style_dim))
     output = decoder([content_vec, style_vec])
