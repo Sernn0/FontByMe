@@ -10,11 +10,16 @@ import tensorflow as tf
 
 
 def up_block(x: tf.Tensor, filters: int, kernel_size: int = 3, strides: int = 1) -> tf.Tensor:
-    """Upsampling block: Conv2DTranspose -> BatchNorm -> ReLU."""
-    x = tf.keras.layers.Conv2DTranspose(
+    """Upsampling block: UpSampling2D -> Conv2D -> BatchNorm -> ReLU.
+
+    Uses UpSampling2D + Conv2D instead of Conv2DTranspose to avoid checkerboard artifacts.
+    """
+    if strides > 1:
+        x = tf.keras.layers.UpSampling2D(size=(strides, strides), interpolation='bilinear')(x)
+    x = tf.keras.layers.Conv2D(
         filters,
         kernel_size,
-        strides=strides,
+        strides=1,
         padding="same",
         use_bias=False,
     )(x)
