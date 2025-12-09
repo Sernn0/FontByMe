@@ -1,308 +1,253 @@
+
+"""
+Joint Training Script for FontByMe.
+Trains the Decoder to generate images from (Content Latent + Style Vector).
+Also trains the Style Encoder if needed (or fine-tunes it).
+Uses Unified Mapping and standard dataset splits.
+"""
+
 from __future__ import annotations
 
-"""
-Joint training script: style encoder + decoder with fixed content latents.
-"""
-
 import argparse
+import json
+import random
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Tuple, List
 
+import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import optimizers, losses
+from PIL import Image
 
-# Ensure project root on sys.path
 import sys
-
+# Project root setup
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.data.style_dataset import build_style_dataset
-from src.models.style_encoder import build_style_encoder
+from src.data.unified_mapping import load_json_text_mapping
 from src.models.decoder import build_decoder
+from src.models.style_encoder import build_style_encoder
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Joint training: style encoder + decoder."
-    )
-    parser.add_argument(
-        "--train_index",
-        type=Path,
-        default=Path("data/handwriting_processed/handwriting_index_train.json"),
-        help="Path to train index JSON.",
-    )
-    parser.add_argument(
-        "--val_index",
-        type=Path,
-        default=Path("data/handwriting_processed/handwriting_index_val.json"),
-        help="Path to val index JSON.",
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=Path("data/handwriting_raw/resizing"),
-        help="Root directory for resolving image paths.",
-    )
-    parser.add_argument(
-        "--content_latents",
-        type=Path,
-        default=Path("runs/autoenc/content_latents.npy"),
-        help="Path to content_latents.npy (shape: [num_chars, content_dim]).",
-    )
-    parser.add_argument(
-        "--style_encoder_path",
-        type=Path,
-        default=Path("runs/style_encoder/encoder_style_backbone.h5"),
-        help="Path to pretrained style encoder (optional).",
-    )
-    parser.add_argument(
-        "--decoder_path",
-        type=Path,
-        default=None,
-        help="Path to decoder weights (optional).",
-    )
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size.")
-    parser.add_argument(
-        "--epochs", type=int, default=10, help="Number of training epochs."
-    )
-    parser.add_argument(
-        "--style_dim", type=int, default=32, help="Style latent dimension."
-    )
-    parser.add_argument(
-        "--content_dim", type=int, default=64, help="Content latent dimension."
-    )
-    parser.add_argument(
-        "--learning_rate", type=float, default=1e-4, help="Learning rate."
-    )
-    parser.add_argument(
-        "--mae_weight",
-        type=float,
-        default=0.0,
-        help="Optional MAE weight to mix with MSE.",
-    )
-    parser.add_argument(
-        "--ssim_weight",
-        type=float,
-        default=0.0,
-        help="SSIM loss weight (structural similarity).",
-    )
-    parser.add_argument(
-        "--edge_weight",
-        type=float,
-        default=0.0,
-        help="Edge loss weight (Sobel edge preservation).",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=Path("runs/joint"),
-        help="Directory to save checkpoints and final models.",
-    )
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train Joint Decoder (Content + Style -> Image)")
+
+    # Data arguments
+    parser.add_argument("--train_index", type=Path, default=ROOT / "data/handwriting_processed/handwriting_index_train_shared.json")
+    parser.add_argument("--val_index", type=Path, default=ROOT / "data/handwriting_processed/handwriting_index_val_shared.json")
+    parser.add_argument("--content_latents", type=Path, default=ROOT / "runs/autoenc/content_latents_unified.npy")
+    parser.add_argument("--png_dir", type=Path, default=ROOT / "data/content_font/NotoSansKR-Regular")
+
+    # Model arguments
+    parser.add_argument("--style_dim", type=int, default=32)
+    parser.add_argument("--content_dim", type=int, default=64)
+    # Using the separate Style Encoder approach
+    # If starting fresh, we build new. If continuing, we load.
+    parser.add_argument("--style_encoder_path", type=Path, default=None, help="Path to pretrained style encoder (optional)")
+    parser.add_argument("--content_encoder_path", type=Path, default=ROOT / "runs/autoenc/encoder.h5", help="Path to content encoder to keep fixed (if needed)")
+
+    # Training arguments
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=2e-4) # Moderate LR
+    parser.add_argument("--output_dir", type=Path, default=ROOT / "runs/joint")
+
     return parser.parse_args()
 
 
-def load_content_latents(path: Path) -> tf.Tensor:
-    arr = np.load(path)
-    if arr.ndim != 2:
-        raise ValueError(f"Expected 2D content latents, got shape {arr.shape}")
-    return tf.constant(arr, dtype=tf.float32)
+def load_image(path: Path) -> np.ndarray:
+    """Load image as (256, 256, 1) float32 [0, 1]."""
+    img = Image.open(path).convert("L")
+    img = img.resize((256, 256), Image.LANCZOS)
+    arr = np.array(img, dtype=np.float32) / 255.0
+    return np.expand_dims(arr, axis=-1)
 
 
-def load_style_encoder(path: Path, style_dim: int) -> keras.Model:
-    model = build_style_encoder(style_dim=style_dim, input_shape=(256, 256, 1))
-    if path.is_file():
-        try:
-            print(f"[INFO] Loading style encoder weights from {path}")
-            model.load_weights(path)
-            return model
-        except Exception as exc:
-            print(
-                f"[WARN] Failed to load style encoder weights: {exc}. Using fresh initialization."
-            )
-    return model
+def data_generator(index_path: Path, content_latents_path: Path, unified_mapping: dict, batch_size: int):
+    """
+    Generator that yields ( [content_vec, image], target_image ) pairs?
+    No, for Joint Training:
+    Input: [Content Latent, Style Vector] (Style Vector comes from Style Encoder(Reference Image))
+
+    Training Loop Strategy:
+    1. Sample a batch of (Image, Character) pairs.
+    2. Get Content Latent for Character (from lookup).
+    3. Pass Image to Style Encoder -> Style Vector.
+    4. Pass [Content Latent, Style Vector] to Decoder -> Pred Image.
+    5. Loss = MSE(Image, Pred Image).
+
+    Wait, if we train Style Encoder simultaneously, this works.
+    """
+    with open(index_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    content_latents = np.load(content_latents_path)
+
+    # Filter valid entries
+    valid_data = []
+    for e in data:
+        char = e.get('text')
+        idx = unified_mapping.get(char)
+        if idx is not None and idx < len(content_latents):
+            e['_unified_idx'] = idx
+            valid_data.append(e)
+
+    num_samples = len(valid_data)
+    indices = np.arange(num_samples)
+
+    while True:
+        np.random.shuffle(indices)
+        for i in range(0, num_samples, batch_size):
+            batch_idx = indices[i : i + batch_size]
+            batch_entries = [valid_data[k] for k in batch_idx]
+
+            # Prepare batch
+            images = []
+            c_latents = []
+
+            for entry in batch_entries:
+                # Load image
+                # Logic to find absolute path
+                # index json usually has relative path from project root or data root
+                # "image_path": "data/handwriting_raw/..."
+                p = ROOT / entry['image_path']
+                if not p.exists():
+                    # Fallback or skip?
+                    # For generator safety, maybe output zero/skip?
+                    # Ideally data cleaning removed these.
+                    img = np.zeros((256, 256, 1), dtype=np.float32)
+                else:
+                    img = load_image(p)
+
+                images.append(img)
+                c_latents.append(content_latents[entry['_unified_idx']])
+
+            batch_images = np.array(images)      # (B, 256, 256, 1)
+            batch_content = np.array(c_latents)  # (B, 64)
+
+            yield batch_images, batch_content
 
 
-def load_decoder(path: Path, content_dim: int, style_dim: int) -> keras.Model:
-    model = build_decoder(
-        content_dim=content_dim, style_dim=style_dim, img_shape=(256, 256, 1)
-    )
-    if path and Path(path).is_file():
-        try:
-            print(f"[INFO] Loading decoder weights from {path}")
-            model.load_weights(path)
-        except Exception as exc:
-            print(f"[WARN] Failed to load decoder weights: {exc}. Using fresh weights.")
-    return model
+def main():
+    args = parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 1. Load Unified Mapping (using scripts/unified_mapping.py logic which we moved to src/data)
+    # But wait, we need the mapping dict char -> idx.
+    # We can rebuild it or load it? unified_mapping.py builds it on fly usually.
+    # Let's import build_unified_mapping
+    from src.data.unified_mapping import build_unified_mapping
+    # We need a json path and png dir to build it validly
+    print("[INFO] Building Unified Mapping...")
+    unified_mapping, _ = build_unified_mapping(args.train_index, args.png_dir)
+    print(f"[INFO] Mapping size: {len(unified_mapping)}")
 
-def ssim_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
-    """Structural Similarity loss (1 - SSIM)."""
-    return 1.0 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, max_val=1.0))
+    # 2. Models
+    print("[INFO] Building Models...")
+    # Style Encoder
+    style_encoder = build_style_encoder(style_dim=args.style_dim)
+    if args.style_encoder_path and args.style_encoder_path.exists():
+        style_encoder.load_weights(str(args.style_encoder_path))
+        print(f"[INFO] Loaded Style Encoder from {args.style_encoder_path}")
 
+    # Decoder
+    # Inputs: [Content(64), Style(32)] -> Image(256,256,1)
+    decoder = build_decoder(content_dim=args.content_dim, style_dim=args.style_dim)
+    # If we had a pretrained decoder (content-only), we can't load it directly because architecture changed (2 inputs vs 1).
+    # Content Autoencoder Decoder: Input(64) -> Dense -> Reshape -> Conv2DTranspose...
+    # Joint Decoder: Input([64,32]) -> Dense -> Reshape -> Conv2DTranspose...
+    # The layers AFTER the first Dense are identical.
+    # We *could* transfer weights for the convolutional layers if we want.
+    # For now, let's train from scratch or handle weight transfer later if convergence is slow.
 
-def edge_loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
-    """Edge preservation loss using Sobel operator."""
-    sobel_true = tf.image.sobel_edges(y_true)
-    sobel_pred = tf.image.sobel_edges(y_pred)
-    return tf.reduce_mean(tf.abs(sobel_true - sobel_pred))
+    # 3. Training Loop Setup
+    optimizer = keras.optimizers.Adam(learning_rate=args.lr)
+    mse_loss = keras.losses.MeanSquaredError()
 
-
-def compute_loss(
-    images: tf.Tensor,
-    preds: tf.Tensor,
-    mse_fn: losses.Loss,
-    mae_fn: losses.Loss,
-    mae_weight: float,
-    ssim_weight: float = 0.0,
-    edge_weight: float = 0.0,
-) -> tf.Tensor:
-    """Combined loss: MSE + weighted(MAE + SSIM + Edge)."""
-    total_loss = mse_fn(images, preds)
-    if mae_weight > 0.0:
-        total_loss = total_loss + mae_weight * mae_fn(images, preds)
-    if ssim_weight > 0.0:
-        total_loss = total_loss + ssim_weight * ssim_loss(images, preds)
-    if edge_weight > 0.0:
-        total_loss = total_loss + edge_weight * edge_loss(images, preds)
-    return total_loss
-
-
-class Trainer:
-    def __init__(
-        self,
-        content_latents: tf.Tensor,
-        style_encoder: keras.Model,
-        decoder: keras.Model,
-        learning_rate: float,
-        mae_weight: float,
-        ssim_weight: float = 0.0,
-        edge_weight: float = 0.0,
-    ):
-        self.content_latents = content_latents  # (num_chars, content_dim)
-        self.style_encoder = style_encoder
-        self.decoder = decoder
-        self.optimizer = optimizers.Adam(learning_rate=learning_rate)
-        self.mse_fn = losses.MeanSquaredError()
-        self.mae_fn = losses.MeanAbsoluteError()
-        self.mae_weight = mae_weight
-        self.ssim_weight = ssim_weight
-        self.edge_weight = edge_weight
-        self.train_loss = tf.keras.metrics.Mean(name="train_loss")
-        self.val_loss = tf.keras.metrics.Mean(name="val_loss")
-
-    def _forward(
-        self, batch: Dict[str, tf.Tensor], training: bool
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
-        # Support dict batches and tuple batches
-        if isinstance(batch, dict):
-            images = batch["image"]
-            text_ids = tf.cast(batch["text_id"], tf.int32)
-        else:
-            images, text_ids, _ = batch
-            text_ids = tf.cast(text_ids, tf.int32)
-        content_vec = tf.gather(self.content_latents, text_ids)
-        style_vec = self.style_encoder(images, training=training)
-        preds = self.decoder([content_vec, style_vec], training=training)
-        loss = compute_loss(
-            images, preds, self.mse_fn, self.mae_fn,
-            self.mae_weight, self.ssim_weight, self.edge_weight
-        )
-        return preds, loss, images
-
+    # 4. Custom Training Step
     @tf.function
-    def train_step(self, batch: Dict[str, tf.Tensor]) -> tf.Tensor:
+    def train_step(images, content_vecs):
         with tf.GradientTape() as tape:
-            preds, loss, _ = self._forward(batch, training=True)
-        vars_to_train = (
-            self.style_encoder.trainable_variables + self.decoder.trainable_variables
-        )
-        grads = tape.gradient(loss, vars_to_train)
-        self.optimizer.apply_gradients(zip(grads, vars_to_train))
-        self.train_loss.update_state(loss)
+            # 1. Encode Style
+            style_vecs = style_encoder(images, training=True)
+
+            # 2. Decode (Content + Style)
+            # Decoder expects list [content, style]
+            preds = decoder([content_vecs, style_vecs], training=True)
+
+            # 3. Loss
+            loss = mse_loss(images, preds)
+
+        # Gradients
+        # Train BOTH Style Encoder and Decoder
+        trainable_vars = style_encoder.trainable_variables + decoder.trainable_variables
+        grads = tape.gradient(loss, trainable_vars)
+        optimizer.apply_gradients(zip(grads, trainable_vars))
         return loss
 
     @tf.function
-    def val_step(self, batch: Dict[str, tf.Tensor]) -> tf.Tensor:
-        preds, loss, _ = self._forward(batch, training=False)
-        self.val_loss.update_state(loss)
+    def val_step(images, content_vecs):
+        style_vecs = style_encoder(images, training=False)
+        preds = decoder([content_vecs, style_vecs], training=False)
+        loss = mse_loss(images, preds)
         return loss
 
+    # 5. Run Training
+    print("[INFO] Starting Training...")
 
-def run_training(args: argparse.Namespace) -> None:
-    # Load content latents
-    content_latents = load_content_latents(args.content_latents)
+    # Generators
+    train_gen = data_generator(args.train_index, args.content_latents, unified_mapping, args.batch_size)
+    val_gen = data_generator(args.val_index, args.content_latents, unified_mapping, args.batch_size)
 
-    # Datasets
-    train_ds = build_style_dataset(
-        index_json_path=args.train_index,
-        batch_size=args.batch_size,
-        shuffle=True,
-        root=args.root,
-    )
-    val_ds = build_style_dataset(
-        index_json_path=args.val_index,
-        batch_size=args.batch_size,
-        shuffle=False,
-        root=args.root,
-    )
+    # Quick count for steps
+    with open(args.train_index) as f: n_train = len(json.load(f))
+    with open(args.val_index) as f: n_val = len(json.load(f))
+    steps_per_epoch = n_train // args.batch_size
+    val_steps = n_val // args.batch_size
 
-    # Models
-    style_encoder = load_style_encoder(
-        args.style_encoder_path, style_dim=args.style_dim
-    )
-    decoder = load_decoder(
-        args.decoder_path, content_dim=args.content_dim, style_dim=args.style_dim
-    )
-
-    trainer = Trainer(
-        content_latents=content_latents,
-        style_encoder=style_encoder,
-        decoder=decoder,
-        learning_rate=args.learning_rate,
-        mae_weight=args.mae_weight,
-        ssim_weight=args.ssim_weight,
-        edge_weight=args.edge_weight,
-    )
-
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    best_val_loss = float('inf')
 
     for epoch in range(args.epochs):
-        trainer.train_loss.reset_state()
-        trainer.val_loss.reset_state()
+        print(f"\nEpoch {epoch+1}/{args.epochs}")
 
-        for _, batch in enumerate(train_ds):
-            loss = trainer.train_step(batch)
-            trainer.train_loss.update_state(loss)
+        # Train
+        train_loss_sum = 0
+        for step in range(steps_per_epoch):
+            images, content_vecs = next(train_gen)
+            loss = train_step(images, content_vecs)
+            train_loss_sum += loss
+            if step % 100 == 0:
+                print(f"  Step {step}/{steps_per_epoch} Loss: {loss:.4f}", end='\r')
 
-        for _, batch in enumerate(val_ds):
-            val_loss = trainer.val_step(batch)
-            trainer.val_loss.update_state(val_loss)
+        avg_train_loss = train_loss_sum / steps_per_epoch
+        print(f"  Train Loss: {avg_train_loss:.4f}")
 
-        train_loss_val = trainer.train_loss.result().numpy()
-        val_loss_val = trainer.val_loss.result().numpy()
-        print(
-            f"Epoch {epoch + 1}/{args.epochs} - loss: {train_loss_val:.4f} - val_loss: {val_loss_val:.4f}"
-        )
+        # Val
+        val_loss_sum = 0
+        for step in range(val_steps):
+            images, content_vecs = next(val_gen)
+            loss = val_step(images, content_vecs)
+            val_loss_sum += loss
 
-        # Save per-epoch checkpoints
-        style_encoder.save(output_dir / f"style_encoder_epoch{epoch+1:02d}.h5")
-        decoder.save(output_dir / f"decoder_epoch{epoch+1:02d}.h5")
+        avg_val_loss = val_loss_sum / val_steps
+        print(f"  Val Loss:   {avg_val_loss:.4f}")
 
-    # Final save
-    style_encoder.save(output_dir / "style_encoder_final.h5")
-    decoder.save(output_dir / "decoder_final.h5")
-    print(f"[INFO] Training complete. Models saved to {output_dir}")
+        # Checkpoint
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            print(f"  [Save] New best validation loss!")
+            style_encoder.save(args.output_dir / "style_encoder_best.h5")
+            decoder.save(args.output_dir / "decoder_best.h5")
 
+        # Periodic Save
+        if (epoch + 1) % 5 == 0:
+             # Visualization
+             # (Reuse same batch from val info if possible or take new)
+             pass
 
-def main() -> None:
-    args = parse_args()
-    run_training(args)
-
+    print("[INFO] Training Complete.")
 
 if __name__ == "__main__":
     main()

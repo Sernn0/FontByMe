@@ -1,9 +1,0 @@
-#!/usr/bin/env python3
-"""
-Convenience launcher so `python run` behaves like `python ui/font_ui.py`.
-"""
-from ui.font_ui import main
-
-
-if __name__ == "__main__":
-    main()

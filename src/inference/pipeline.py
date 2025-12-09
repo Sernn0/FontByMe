@@ -13,27 +13,23 @@ from typing import List, Tuple, Optional
 import numpy as np
 from PIL import Image
 
+import json
+
 # Paths relative to project root
 ROOT = Path(__file__).resolve().parents[2]
 PRETRAINED_DECODER = ROOT / "runs" / "autoenc" / "decoder.h5"
-CONTENT_LATENTS = ROOT / "runs" / "autoenc" / "content_latents_clean.npy"
+CONTENT_LATENTS = ROOT / "runs" / "autoenc" / "content_latents_unified.npy"
 PNG_DIR = ROOT / "data" / "content_font" / "NotoSansKR-Regular"
+CHAR_VOCAB = ROOT / "src" / "data" / "char_vocab.json"
 OUTPUT_DIR = ROOT / "outputs"
 
 
-def build_char_to_index(png_dir: Path) -> dict:
-    """Build character -> content latent index mapping."""
-    png_files = sorted(png_dir.glob("*.png"))
-    mapping = {}
-    for idx, f in enumerate(png_files):
-        name = f.stem
-        if name.startswith("U+"):
-            try:
-                codepoint = int(name[2:], 16)
-                mapping[chr(codepoint)] = idx
-            except ValueError:
-                continue
-    return mapping
+def load_char_vocab() -> dict:
+    """Load unified character mapping."""
+    if not CHAR_VOCAB.exists():
+        raise FileNotFoundError(f"Character vocab not found at {CHAR_VOCAB}")
+    with open(CHAR_VOCAB, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def load_image(path: Path, size: int = 256) -> np.ndarray:
@@ -70,14 +66,15 @@ def finetune_decoder(
     Returns:
         Path to fine-tuned decoder.h5
     """
-    # Lazy imports to avoid loading TF when not needed
+    # Lazy imports to avoid loading TF when needed
     import tensorflow as tf
     from tensorflow import keras
+    from src.data.unified_mapping import load_json_text_mapping, build_unified_mapping
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build mapping
-    char_to_index = build_char_to_index(PNG_DIR)
+    char_to_index = load_char_vocab()
     content_latents = np.load(CONTENT_LATENTS)
 
     # Prepare data
@@ -159,7 +156,7 @@ def generate_all_glyphs(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    char_to_index = build_char_to_index(PNG_DIR)
+    char_to_index = load_char_vocab()
     content_latents = np.load(CONTENT_LATENTS)
 
     # Use pretrained decoder if no fine-tuned path provided
