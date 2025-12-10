@@ -22,7 +22,11 @@ def build_decoder(
     content_input = tf.keras.Input(shape=(content_dim,), name="content_vec")
     style_input = tf.keras.Input(shape=(style_dim,), name="style_vec")
 
-    x = tf.keras.layers.Concatenate(name="concat_latent")([content_input, style_input])
+    # Content Latents are large (-11 ~ 10), potentially causing saturation.
+    # Scale them down to ~ (-1 ~ 1) range.
+    scaled_content = tf.keras.layers.Lambda(lambda t: t * 0.1, name="scale_content")(content_input)
+
+    x = tf.keras.layers.Concatenate(name="concat_latent")([scaled_content, style_input])
 
     # Project to 16x16x256 feature map (same as content autoencoder decoder)
     x = tf.keras.layers.Dense(16 * 16 * 256, activation="relu")(x)
