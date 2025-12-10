@@ -95,6 +95,13 @@ def test_generate():
 
     plt.tight_layout()
     plt.savefig("test_result.png")
+
+    # Save to Drive if available
+    if RUNS_DIR.exists():
+        drive_out = RUNS_DIR / "test_result.png"
+        plt.savefig(drive_out)
+        print(f"✅ Saved visualization to {drive_out}")
+
     print("✅ Saved visualization to test_result.png")
     plt.show()
 
