@@ -10,6 +10,22 @@ from typing import Tuple
 import tensorflow as tf
 
 
+class ContentScaleLayer(tf.keras.layers.Layer):
+    """Custom layer for scaling content latents (serializable)."""
+
+    def __init__(self, scale: float = 0.05, **kwargs):
+        super().__init__(**kwargs)
+        self.scale = scale
+
+    def call(self, inputs):
+        return inputs * self.scale
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"scale": self.scale})
+        return config
+
+
 def build_decoder(
     content_dim: int = 64,
     style_dim: int = 32,
@@ -23,9 +39,8 @@ def build_decoder(
     style_input = tf.keras.Input(shape=(style_dim,), name="style_vec")
 
     # Content Latents are large (-24 ~ 23), potentially causing saturation.
-    # Scale them down to ~ (-1.2 ~ 1.2) range to match style vectors (-0.3 ~ 0.3).
-    # Using 0.05 scaling factor.
-    scaled_content = tf.keras.layers.Lambda(lambda t: t * 0.05, name="scale_content")(content_input)
+    # Scale them down to ~ (-1.2 ~ 1.2) range to match style vectors.
+    scaled_content = ContentScaleLayer(scale=0.05, name="scale_content")(content_input)
 
     x = tf.keras.layers.Concatenate(name="concat_latent")([scaled_content, style_input])
 

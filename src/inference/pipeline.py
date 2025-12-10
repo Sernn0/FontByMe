@@ -184,11 +184,18 @@ def generate_all_glyphs(
             f"  Decoder: {decoder_path}"
         )
 
+    # Import custom layers for deserialization
+    from src.models.decoder import ContentScaleLayer
+
     print(f"[Pipeline] Loading Style Encoder from {style_encoder_path}")
     style_encoder = keras.models.load_model(str(style_encoder_path), compile=False)
 
     print(f"[Pipeline] Loading Decoder from {decoder_path}")
-    decoder = keras.models.load_model(str(decoder_path), compile=False)
+    decoder = keras.models.load_model(
+        str(decoder_path),
+        custom_objects={'ContentScaleLayer': ContentScaleLayer},
+        compile=False
+    )
 
     # Extract style vector from user samples (average of all samples)
     print(f"[Pipeline] Extracting style from {len(style_images)} samples...")

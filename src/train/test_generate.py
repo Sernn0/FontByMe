@@ -50,8 +50,15 @@ def test_generate():
         print(f"   Expected: {decoder_path}")
         return
 
+    # Import custom layers for deserialization
+    from src.models.decoder import ContentScaleLayer
+
     style_encoder = keras.models.load_model(style_enc_path, compile=False)
-    decoder = keras.models.load_model(decoder_path, compile=False)
+    decoder = keras.models.load_model(
+        decoder_path,
+        custom_objects={'ContentScaleLayer': ContentScaleLayer},
+        compile=False
+    )
 
     # Load Latents & Vocab using config paths
     content_latents = np.load(CONTENT_LATENTS)
