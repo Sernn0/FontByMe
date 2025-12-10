@@ -63,8 +63,19 @@ def build_style_encoder():
 
 def build_decoder():
     """Decoder that combines content latent and style to generate image."""
-    # Custom layer for scaling content latent
-    from src.models.decoder import ContentScaleLayer
+    # Define ContentScaleLayer inline to avoid module import issues
+    class ContentScaleLayer(keras.layers.Layer):
+        def __init__(self, scale=0.1, **kwargs):
+            super().__init__(**kwargs)
+            self.scale = scale
+
+        def call(self, inputs):
+            return inputs * self.scale
+
+        def get_config(self):
+            config = super().get_config()
+            config.update({"scale": self.scale})
+            return config
 
     content_input = keras.Input(shape=(LATENT_DIM,), name="content_latent")
     style_input = keras.Input(shape=(STYLE_DIM,), name="style_vector")
