@@ -85,9 +85,18 @@ def test_generate():
         c_vec = content_latents[c_idx:c_idx+1] # (1, 64)
         c_vec = tf.convert_to_tensor(c_vec, dtype=tf.float32)
 
+        # DEBUG: Print stats
+        if i == 0:
+            print(f"Content Latent Stats: Min={np.min(c_vec):.4f}, Max={np.max(c_vec):.4f}, Mean={np.mean(c_vec):.4f}")
+            print(f"Style Vector Stats: Min={np.min(style_vec):.4f}, Max={np.max(style_vec):.4f}, Mean={np.mean(style_vec):.4f}")
+
         # Decode
         pred = decoder([c_vec, style_vec], training=False)
         pred_img = pred.numpy().squeeze()
+
+        if i == 0:
+            print(f"Pred Image Stats: Min={np.min(pred_img):.4f}, Max={np.max(pred_img):.4f}, Mean={np.mean(pred_img):.4f}")
+
 
         axes[i+1].imshow(pred_img, cmap="gray", vmin=0, vmax=1)
         axes[i+1].set_title(char)
