@@ -78,7 +78,7 @@ def build_decoder():
 
 
 def load_data():
-    """Load binarized handwriting data."""
+    """Load binarized handwriting data using filename-to-char mapping."""
     # Find all writer folders
     writers = sorted([d.name for d in DATA_DIR.iterdir() if d.is_dir()])
     print(f"[DATA] Found {len(writers)} writers")
@@ -88,33 +88,39 @@ def load_data():
     with open(CHAR_VOCAB, 'r') as f:
         vocab = json.load(f)
 
-    # Build char index (Unicode codepoint -> index)
+    # Build char index (char -> index in content_latents)
     char_to_idx = {char: idx for char, idx in vocab.items()}
 
-    # Parse handwriting filename: 00130001001.png
-    # Format: NNNNYYYYXXX where NNNN=?, YYYY=unicode, XXX=sample
+    # Load filename-to-character mapping from JSON
+    mapping_path = DATA_DIR / "filename_to_char.json"
+    if not mapping_path.exists():
+        raise FileNotFoundError(f"Mapping file not found: {mapping_path}")
+
+    with open(mapping_path, 'r', encoding='utf-8') as f:
+        filename_to_char = json.load(f)
+    print(f"[DATA] Loaded {len(filename_to_char)} filename mappings")
+
+    # Collect all image paths with writer_id and char_idx
     all_data = []
+    skipped = 0
     for writer_id, writer_name in enumerate(writers):
         writer_dir = DATA_DIR / writer_name
         for png in writer_dir.glob("*.png"):
-            # Extract unicode from filename (positions 4-8)
-            fname = png.stem
-            if len(fname) >= 8:
-                try:
-                    unicode_part = int(fname[4:8])
-                    # Map to actual codepoint (1=AC00, 2=AC01, ...)
-                    codepoint = 0xAC00 + unicode_part - 1
-                    char = chr(codepoint)
-                    if char in char_to_idx:
-                        all_data.append({
-                            "path": str(png),
-                            "writer_id": writer_id,
-                            "char_idx": char_to_idx[char]
-                        })
-                except:
-                    continue
+            fname = png.stem  # e.g., "00130001001"
+            if fname in filename_to_char:
+                char = filename_to_char[fname]
+                if char in char_to_idx:
+                    all_data.append({
+                        "path": str(png),
+                        "writer_id": writer_id,
+                        "char_idx": char_to_idx[char]
+                    })
+                else:
+                    skipped += 1
+            else:
+                skipped += 1
 
-    print(f"[DATA] Total samples: {len(all_data)}")
+    print(f"[DATA] Total samples: {len(all_data)} (skipped: {skipped})")
 
     # Shuffle and split
     np.random.shuffle(all_data)
