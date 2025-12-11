@@ -1,99 +1,130 @@
 # FontByMe - 내글씨폰트
 
+<p align="right">
+  <img src="ui/assets/font_by_me_dark_logo.png" alt="FontByMe Logo" width="400">
+</p>
+
 HNU 2025 AI-programming course fall
 
 20222328 윤여명 / 20202474 황경준 / 20232708 김수인
 
 ## 프로젝트 개요
-- 사용자가 작성한 손글씨 PDF를 받아 글립 이미지를 추출하고, 벡터(SVG)·폰트(TTF)로 변환하는 파이프라인입니다.
-- content/style 분리 모델(오토인코더 기반)과 벡터라이즈(potrace)·폰트 빌드(fontmake/fontTools)를 조합해 “내 글씨체”를 생성합니다.
-- 로컬 Tkinter UI(`ui/font_ui.py`)를 통해 간편/정밀 모드 양식 다운로드 → PDF 업로드 → 결과물 다운로드(선택적으로 SVG/TTF) 흐름을 제공합니다.
 
-## 실행 방법
-### UI 실행
-```bash
-python run
-```
-- 최초 실행 시 프리플라이트 로그로 필수 의존성을 검사합니다.
-- 양식 다운로드: 각 모드 우측 버튼을 눌러 다운로드합니다.
-- PDF 업로드 시 페이지별 중앙 512x512를 잘라 256x256으로 리사이즈하고, charset 순서에 따라 `####_CODE.png`로 저장합니다.
+사용자의 손글씨 PDF를 입력받아 2,350자 한글 폰트(TTF)를 자동 생성하는 딥러닝 기반 시스템입니다.
 
-### 학습 스크립트
-- 스타일 인코더 학습:
-```bash
-python -m src.trainers.train_style_encoder \
-  --train_index <train_json> --val_index <val_json> \
-  --root <handwriting_raw/resizing> \
-  --batch_size 32 --epochs 10 --style_dim 32 \
-  --out_dir runs/style_encoder_full
+- **Content-Style 분리 학습**: 글자 구조(Content)와 필체 스타일(Style)을 분리하여 학습
+- **약 200자 샘플로 전체 폰트 생성**: 제한된 입력에서 2,350자를 생성
+- **End-to-end 자동화**: PDF 업로드 → 글자 추출 → 모델 추론 → SVG 벡터화 → TTF 생성
+
+## 시스템 구조
+
 ```
-- 조인트 학습:
-```bash
-python -m src.train.train_joint \
-  --train_index <train_json> --val_index <val_json> \
-  --root <handwriting_raw/resizing> \
-  --content_latents runs/autoenc/content_latents.npy \
-  --style_encoder_path runs/style_encoder/encoder_style_backbone.h5 \
-  --batch_size 16 --epochs 1 --style_dim 32 --content_dim 64
+[1단계: Content Encoder 사전 학습]
+- 표준 폰트(NotoSansKR) 2,350자 → 64D Content Latent (고정)
+
+[2단계: Style Encoder + Joint Decoder 통합 학습]
+- 입력 이미지 → 32D Style Vector
+- Content + Style → Decoder → 생성 이미지
+
+[후처리]
+- PNG → SVG (potrace) → TTF (fontmake)
 ```
 
-## 개발 과정 / 아키텍처
-1) **데이터 전처리**
-   - `src/data/style_dataset.py`: JSON index → tf.data.Datasets (이미지 0~1 정규화, 256x256 리사이즈).
-   - `src/data/preprocess_handwriting.py`: 손글씨 크롭/패딩/리사이즈.
-   - `charset_50.txt`, `charset_220.txt`, `charset_2350.txt`: 문자 집합 정의.
-2) **모델**
-   - `src/models/style_encoder.py`: CNN + L2 normalize.
-   - `src/models/decoder.py`: content+style → ConvTranspose 업샘플러, 출력 sigmoid(0~1).
-   - content encoder는 오토인코더로 별도 학습(가중치 `.h5`, latent `.npy` 활용).
-3) **학습 스크립트**
-   - `src/trainers/train_style_encoder.py`: writer 분류로 스타일 백본 학습, remap으로 연속 라벨 처리.
-   - `src/train/train_joint.py`: content_latents 고정, style encoder+decoder joint 재구성 학습.
-4) **벡터라이즈·폰트 생성**
-   - SVG: potrace (CLI) → `output.svg`
-   - TTF: fontmake/fontTools → `output.ttf`
-   - 현재 UI에는 TODO 더미 로직으로 자리만 잡혀 있음.
-5) **UI**
-   - `ui/font_ui.py`: 양식 다운로드 → PDF 드롭 → 로딩 → 결과 다운로드. Drag&Drop은 `tkinterdnd2` 설치 시 활성화.
+## 학습 버전
 
-## 설치 가이드
+| 버전 | 학습 데이터 | 특징 | 현재 상태 |
+|------|-----------|------|----------|
+| v1 | 촬영 손글씨 (원본) | 도메인 불일치 문제 | `runs/joint/` |
+| **v2** | 폰트 렌더링 (112개) | **UI 연결됨** | `runs/font_v2/` |
+| v3 | 이진화 손글씨 | 실험 중 | `runs/handwriting_v3/` |
 
-### 1. Python 패키지 설치 (공통)
+## 필수 의존성
+
+### Python 패키지
+| 패키지 | 용도 |
+|--------|------|
+| `tensorflow` | 딥러닝 모델 추론 |
+| `Pillow` | 이미지 처리 |
+| `numpy` | 수치 연산 |
+| `pdf2image` | PDF → 이미지 변환 |
+| `fonttools` | TTF 폰트 생성 |
+| `tkinterdnd2` | 드래그 앤 드롭 UI |
+
+### 시스템 도구
+| 도구 | 용도 | 필수 여부 |
+|------|------|----------|
+| **Poppler** | PDF를 이미지로 변환 | ✅ 필수 |
+| **potrace** | PNG → SVG 벡터 변환 | ✅ 필수 |
+| **FontForge** | SVG → TTF 폰트 빌드 | ✅ 필수 |
+
+---
+
+## 설치 방법
+
+### macOS (Homebrew)
 ```bash
+# Python 패키지
 pip install -r requirements-ui.txt
-```
 
-### 2. 시스템 도구 설치
-
-#### macOS (Homebrew)
-```bash
-# Homebrew 설치 (미설치 시)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# 필수 도구 설치
+# 시스템 도구
 brew install poppler potrace fontforge
 ```
 
-#### Windows
-
-1. **Poppler** (PDF 처리용)
-   - [poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases) 다운로드
-   - 압축 해제 후 `bin` 폴더 경로를 환경변수 `POPPLER_PATH`에 추가
-   - 또는 시스템 PATH에 추가
-
-2. **Potrace** (PNG→SVG 변환용)
-   - [potrace 다운로드](https://potrace.sourceforge.net/#downloading)
-   - `potrace.exe`를 시스템 PATH에 추가
-
-3. **FontForge** (SVG→TTF 변환용)
-   - [FontForge 다운로드](https://fontforge.org/en-US/downloads/)
-   - 설치 후 FontForge 설치 경로를 시스템 PATH에 추가
-
-### 3. 실행
+### Windows
 ```bash
-python run
+# Python 패키지
+pip install -r requirements-ui.txt
 ```
 
-## 기타
-- 필수 의존성: `Pillow`, `numpy`, `pdf2image`, `fonttools`, `tensorflow`, `tkinterdnd2`
-- 시스템 도구: Poppler, potrace, FontForge
+**시스템 도구 개별 설치:**
+
+1. **Poppler**: [다운로드](https://github.com/oschwartz10612/poppler-windows/releases) → `bin` 폴더를 PATH에 추가
+2. **potrace**: [다운로드](https://potrace.sourceforge.net/#downloading) → `potrace.exe`를 PATH에 추가
+3. **FontForge**: [다운로드](https://fontforge.org/en-US/downloads/) → 설치 경로를 PATH에 추가
+
+---
+
+## 실행
+
+```bash
+python command/run
+```
+
+최초 실행 시 필요한 의존성을 자동으로 검사합니다.
+
+---
+
+## 프로젝트 구조
+
+```
+FontByMe/
+├── ui/font_ui.py           # GUI 애플리케이션
+├── src/
+│   ├── inference/          # 추론 파이프라인 (v1, v2, v3)
+│   ├── train_v2/           # 학습 스크립트
+│   └── models/             # 신경망 모델 정의
+├── runs/                   # 학습된 모델 (.h5)
+│   ├── autoenc/            # Content Encoder + Latents
+│   ├── joint/              # v1 모델
+│   ├── font_v2/            # v2 모델 (현재 사용)
+│   └── handwriting_v3/     # v3 모델
+├── data/                   # 학습 데이터 (gitignore)
+└── fonts/                  # 폰트 파일
+```
+
+## 모델 규모
+
+| 모듈 | 파라미터 수 | 크기 |
+|------|-----------|------|
+| Content Encoder | ~1.2M | ~5 MB |
+| Style Encoder | ~1.2M | ~5 MB |
+| Joint Decoder | ~8.5M | ~35 MB |
+
+## 데이터 및 리소스 출처
+
+| 리소스 | 출처 | 용도 |
+|--------|------|------|
+| 손글씨 데이터 | [AI Hub 한글 손글씨](https://aihub.or.kr/aihubdata/data/view.do?dataSetSn=91) | 122명 작가, 276K 이미지 |
+| 폰트 데이터 | [네이버 나눔글꼴](https://hangeul.naver.com/fonts/search?f=nanum), [Google Fonts](https://fonts.google.com) | 112개 폰트 렌더링 |
+| 기준 폰트 | [Noto Sans KR](https://fonts.google.com/noto/specimen/Noto+Sans+KR) | Content Latent 생성 |
+| 프레임워크 | [TensorFlow/Keras](https://tensorflow.org) | 모델 학습/추론 |
